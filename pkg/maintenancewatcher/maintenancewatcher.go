@@ -3,11 +3,11 @@ package maintenancewatcher
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/go-logr/logr"
 	machinev1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
-	"github.com/prometheus/common/log"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -34,35 +34,77 @@ func NewMaintenanceWatcher(client client.Client, watchInterval time.Duration) *m
 	}
 }
 
-// MaintenanceWatcher will trigger CredentialsRotator every `scanInternal` and only stop if the operator is killed or a
-// message is sent on the stopCh
-//func (m *maintenanceWatcher) Start(log logr.Logger, stopCh <-chan struct{}) {
-func (m *maintenanceWatcher) Start() {
+// MaintenanceWatcher will scan each machine in the cluster and publish maintenances for them.
+// on the frequency of m.watchInterval. Process wil cease when message is sent on the stopCh.
+func (m *maintenanceWatcher) Start(log logr.Logger, stopCh <-chan struct{}) {
 	log.Info("Starting the maintenanceWatcher")
-	log.Info("MaintenanceWatcher initial run")
-	// Get list of nodes by ID
-	// Query if any events scheduled for node
-	// if maintenance, update PlatformMaintenanceSpec.Maintenance = true
-
-	//	machineList := &machinev1.MachineList{}
-	machineList := &machinev1.Machine{}
-	machineNamespacedName := types.NamespacedName{Namespace: "openshift-machine-api-operator"}
-
-	if err := m.client.Get(context.TODO(), machineNamespacedName, machineList); err != nil {
-		log.Error(err, fmt.Sprintf("Unable to list machines in namespace %s", "openshift-machine-api-operator"))
+	log.Info("Scanning Machines for maintenances")
+	// Scan machines for maintenances and publish them to a machinemaintenance CR.
+	err := m.scanAndPublishMachineMaintences(log)
+	if err != nil {
+		log.Error(err, "machine maintenance scanner failed to run")
 	}
 
-	fmt.Printf("%v", machineList)
+	for {
+		select {
+		case <-time.After(m.watchInterval):
+			log.Info("This is printing in a go routine")
+		case <-stopCh:
+			log.Info("Stopping the maintenanceWatcher")
+			break
+		}
+	}
+}
 
-	//	for {
-	//		select {
-	//		case <-time.After(m.watchInterval):
-	log.Info("maintenanceWatcher: scanning for maintenances")
-	time.Sleep(time.Duration(5) * time.Minute)
-	fmt.Printf("%v", machineList)
+// scanAndPublishMachineMaintences will retrieve each machine resource ID and query for
+// scheduled maintenances from the cloud provider. If a maintenance is present, a
+// machinemaintenance CR will be created for the machinemaintenance controller to reconcile.
+func (m *maintenanceWatcher) scanAndPublishMachineMaintences(log logr.Logger) error {
+	// Get the machine resource IDs.
+	machineResourceIDs := make([]string, 0)
+	machineResourceIDs, err := m.getMachineResourceIDs(log)
+	if err != nil {
+		log.Error(err, "failed to return machine resources IDs")
+		return err
+	}
 
-	//		case <-stopCh:
-	//			log.Info("Stopping the maintenance scanner")
-	//			break
-	//		}
+	// query the AWS api for maintenance for the given ID.
+	for _, machineResourceID := range machineResourceIDs {
+		fmt.Println(machineResourceID)
+	}
+
+	return nil
+}
+
+// getMachineResourceIDs gets each machines resource ID and returns them in a string array
+// to the caller.
+func (m *maintenanceWatcher) getMachineResourceIDs(log logr.Logger) ([]string, error) {
+	// Create array to hold machine IDs.
+	machineResourceIDs := make([]string, 0)
+
+	// Create machineList type to use as runtime object.
+	machineList := &machinev1.MachineList{}
+
+	// Set list options for client.List.
+	listOptions := []client.ListOption{
+		client.InNamespace("openshift-machine-api"),
+	}
+
+	// List based on above configuration.
+	err := m.client.List(context.TODO(), machineList, listOptions...)
+	if err != nil {
+		log.Error(err, "Failed to get machine list")
+		return nil, err
+	}
+
+	// Iterate through each machine item and append the resource ID returned
+	// to the machineResourceIDs string array.
+	for _, machineObj := range machineList.Items {
+		r := strings.LastIndex(*machineObj.Spec.ProviderID, "/")
+		if r != -1 {
+			n := *machineObj.Spec.ProviderID
+			machineResourceIDs = append(machineResourceIDs, n[r+1:])
+		}
+	}
+	return machineResourceIDs, nil
 }
