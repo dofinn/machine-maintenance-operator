@@ -68,9 +68,15 @@ func (m *maintenanceWatcher) scanAndPublishMachineMaintences(log logr.Logger) er
 		return err
 	}
 
+	// get aws client
+
 	// query the AWS api for maintenance for the given ID.
 	for _, machineResourceID := range machineResourceIDs {
-		fmt.Println(machineResourceID)
+		// pass aws client here
+		err := checkMachineMaintenance(log, machineResourceID)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -107,4 +113,11 @@ func (m *maintenanceWatcher) getMachineResourceIDs(log logr.Logger) ([]string, e
 		}
 	}
 	return machineResourceIDs, nil
+}
+
+func checkMachineMaintenance(log logr.Logger, mri string) error {
+	fmt.Println(mri)
+	// receive aws clinet
+	// query given machineID for maintenance
+	return nil
 }

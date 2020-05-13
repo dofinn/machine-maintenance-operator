@@ -3,6 +3,7 @@ module github.com/dofinn/machine-maintenance-operator
 go 1.13
 
 require (
+	github.com/aws/aws-sdk-go v1.30.26 // indirect
 	github.com/go-logr/logr v0.1.0
 	github.com/openshift/machine-api-operator v0.2.1-0.20200226185612-9b0170a1ba07
 	github.com/operator-framework/operator-sdk v0.15.2
