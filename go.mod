@@ -1,4 +1,4 @@
-module github.com/dofinn/machine-maintenance-operator
+module github.com/openshift/machine-maintenance-operator
 
 go 1.13
 

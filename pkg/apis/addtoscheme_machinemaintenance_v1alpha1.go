@@ -1,7 +1,7 @@
 package apis
 
 import (
-	"github.com/dofinn/machine-maintenance-operator/pkg/apis/machinemaintenance/v1alpha1"
+	"github.com/openshift/machine-maintenance-operator/pkg/apis/machinemaintenance/v1alpha1"
 )
 
 func init() {

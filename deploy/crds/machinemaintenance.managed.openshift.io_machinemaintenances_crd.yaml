@@ -31,6 +31,13 @@ spec:
         spec:
           description: MachineMaintenanceSpec defines the desired state of MachineMaintenance
           properties:
+            eventcode:
+              type: string
+            eventid:
+              type: string
+            machineid:
+              description: "\tNotBefore   time.Time `json:\"notbefore,omitempty\"`"
+              type: string
             maintenance:
               description: 'INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
                 Important: Run "operator-sdk generate k8s" to regenerate code after
@@ -38,6 +45,7 @@ spec:
                 https://book-v1.book.kubebuilder.io/beyond_basics/generating_crd.html'
               type: boolean
           required:
+          - machineid
           - maintenance
           type: object
         status:

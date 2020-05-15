@@ -11,10 +11,10 @@ import (
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
-	"github.com/dofinn/machine-maintenance-operator/pkg/apis"
-	"github.com/dofinn/machine-maintenance-operator/pkg/controller"
-	"github.com/dofinn/machine-maintenance-operator/pkg/maintenancewatcher"
-	"github.com/dofinn/machine-maintenance-operator/version"
+	"github.com/openshift/machine-maintenance-operator/pkg/apis"
+	"github.com/openshift/machine-maintenance-operator/pkg/controller"
+	"github.com/openshift/machine-maintenance-operator/pkg/maintenancewatcher"
+	"github.com/openshift/machine-maintenance-operator/version"
 
 	configv1 "github.com/openshift/api/config/v1"
 	machinev1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"

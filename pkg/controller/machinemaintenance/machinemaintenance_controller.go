@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	machinemaintenancev1alpha1 "github.com/dofinn/machine-maintenance-operator/pkg/apis/machinemaintenance/v1alpha1"
+	machinemaintenancev1alpha1 "github.com/openshift/machine-maintenance-operator/pkg/apis/machinemaintenance/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -110,6 +110,7 @@ func (r *ReconcileMachineMaintenance) Reconcile(request reconcile.Request) (reco
 		return reconcile.Result{}, nil
 	} else {
 		reqLogger.Info("Maintenance is currently scheduled :)")
+		log.Info(fmt.Sprintf("machine maintenance CR\n%+v\n", instance.Spec))
 		return reconcile.Result{}, nil
 	}
 }

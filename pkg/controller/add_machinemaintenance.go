@@ -1,7 +1,7 @@
 package controller
 
 import (
-	"github.com/dofinn/machine-maintenance-operator/pkg/controller/machinemaintenance"
+	"github.com/openshift/machine-maintenance-operator/pkg/controller/machinemaintenance"
 )
 
 func init() {

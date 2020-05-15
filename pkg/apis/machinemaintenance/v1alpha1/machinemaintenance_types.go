@@ -12,7 +12,11 @@ type MachineMaintenanceSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "operator-sdk generate k8s" to regenerate code after modifying this file
 	// Add custom validation using kubebuilder tags: https://book-v1.book.kubebuilder.io/beyond_basics/generating_crd.html
-	Maintenance bool `json:"maintenance,omitemtpy"`
+	Maintenance bool   `json:"maintenance,required"`
+	EventCode   string `json:"eventcode,omitempty"`
+	EventID     string `json:"eventid,omitempty"`
+	//	NotBefore   time.Time `json:"notbefore,omitempty"`
+	MachineID string `json:"machineid,required"`
 }
 
 // MachineMaintenanceStatus defines the observed state of MachineMaintenance
