@@ -3,12 +3,14 @@ module github.com/dofinn/machine-maintenance-operator
 go 1.13
 
 require (
-	github.com/aws/aws-sdk-go v1.30.26 // indirect
+	github.com/aws/aws-sdk-go v1.30.26
 	github.com/go-logr/logr v0.1.0
+	github.com/openshift/api v3.9.1-0.20190924102528-32369d4db2ad+incompatible
 	github.com/openshift/machine-api-operator v0.2.1-0.20200226185612-9b0170a1ba07
 	github.com/operator-framework/operator-sdk v0.15.2
 	github.com/prometheus/common v0.9.1
 	github.com/spf13/pflag v1.0.5
+	gopkg.in/yaml.v2 v2.2.7
 	//	k8s.io/api v0.17.4
 	k8s.io/api v0.17.2
 	k8s.io/apimachinery v0.17.4

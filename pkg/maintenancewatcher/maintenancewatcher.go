@@ -6,12 +6,26 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/dofinn/machine-maintenance-operator/pkg/awsclient"
 	"github.com/go-logr/logr"
 	machinev1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const ()
+const (
+	AWSSecretName     = "machine-maintenance-operator-credentials"
+	OperatorNamespace = "machine-maintenance-operator"
+
+	// AWS Event Codes
+	instanceReboot     = "instance-reboot"
+	systemReboot       = "system-reboot"
+	systemMaintenance  = "system-maintenance"
+	instanceRetirement = "instance-retirement"
+	instanceStop       = "instance-stop"
+)
 
 // SecretWatcher global var for SecretWatcher
 var MaintenanceWatcher *maintenanceWatcher
@@ -41,14 +55,22 @@ func (m *maintenanceWatcher) Start(log logr.Logger, stopCh <-chan struct{}) {
 	log.Info("Scanning Machines for maintenances")
 	// Scan machines for maintenances and publish them to a machinemaintenance CR.
 	err := m.scanAndPublishMachineMaintences(log)
+
 	if err != nil {
-		log.Error(err, "machine maintenance scanner failed to run")
+		log.Error(err, "machine maintenance scanner failed initial run")
 	}
 
 	for {
 		select {
 		case <-time.After(m.watchInterval):
-			log.Info("This is printing in a go routine")
+			log.Info("Scanning Machines for maintenances")
+			// Scan machines for maintenances and publish them to a machinemaintenance CR.
+			err := m.scanAndPublishMachineMaintences(log)
+
+			if err != nil {
+				log.Error(err, "machine maintenance scanner failed to run")
+			}
+
 		case <-stopCh:
 			log.Info("Stopping the maintenanceWatcher")
 			break
@@ -70,10 +92,32 @@ func (m *maintenanceWatcher) scanAndPublishMachineMaintences(log logr.Logger) er
 
 	// get aws client
 
-	// query the AWS api for maintenance for the given ID.
+	// Get region
+	//region, err := utils.GetClusterRegion(m.client)
+	//if err != nil {
+	//	return err
+	//}
+	region := "us-east-1"
+
+	awsClient, err := awsclient.GetAWSClient(m.client, awsclient.NewAwsClientInput{
+		SecretName: AWSSecretName,
+		NameSpace:  OperatorNamespace,
+		AwsRegion:  region,
+	})
+
+	if err != nil {
+		log.Error(err, "Failed to get AWS client")
+		return err
+	}
+
+	machineResourceIDs = make([]string, 0)
+	machineResourceIDs = append(machineResourceIDs, "i-00b75cd359cf95e26")
+
+	// Query the AWS api for maintenance for the given ID.
+	// TODO : AWS can actually accept a list.
 	for _, machineResourceID := range machineResourceIDs {
 		// pass aws client here
-		err := checkMachineMaintenance(log, machineResourceID)
+		err := checkMachineMaintenance(log, machineResourceID, awsClient)
 		if err != nil {
 			return err
 		}
@@ -115,9 +159,52 @@ func (m *maintenanceWatcher) getMachineResourceIDs(log logr.Logger) ([]string, e
 	return machineResourceIDs, nil
 }
 
-func checkMachineMaintenance(log logr.Logger, mri string) error {
-	fmt.Println(mri)
+// checkMachineMaintenance uses each machines resource ID to query the API and check
+// if that machine has a scheduled maintenance.
+func checkMachineMaintenance(log logr.Logger, mri string, awsclient *awsclient.AwsClient) error {
+
+	// Prepare input for request.
+	input := &ec2.DescribeInstanceStatusInput{
+		InstanceIds: []*string{
+			aws.String(mri),
+		},
+		Filters: []*ec2.Filter{
+			{
+				Name:   aws.String("event.code"),
+				Values: []*string{aws.String(instanceStop), aws.String(instanceReboot)},
+			},
+		}}
+
+	result, err := awsclient.DescribeInstanceStatus(input)
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			default:
+				fmt.Println(aerr.Error())
+			}
+		} else {
+			// Print the error, cast err to awserr.Error to get the Code and
+			// Message from an error.
+			fmt.Println(err.Error())
+		}
+		return err
+	}
+
+	fmt.Println(result)
 	// receive aws clinet
 	// query given machineID for maintenance
 	return nil
 }
+
+/*
+[dofinn@bastion-nasa-1 ~]$ aws --region us-east-1 ec2 describe-instance-status --instance-id i-00b75cd359cf95e26 --query "InstanceStatuses[].Events"
+[
+    [
+        {
+            "Code": "instance-stop",
+            "Description": "The instance is running on degraded hardware",
+            "NotBefore": "2020-05-25T06:00:00.000Z"
+        }
+    ]
+]
+*/

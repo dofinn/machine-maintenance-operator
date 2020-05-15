@@ -16,6 +16,7 @@ import (
 	"github.com/dofinn/machine-maintenance-operator/pkg/maintenancewatcher"
 	"github.com/dofinn/machine-maintenance-operator/version"
 
+	configv1 "github.com/openshift/api/config/v1"
 	machinev1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 
 	//	kubemetrics "github.com/operator-framework/operator-sdk/pkg/kube-metrics"
@@ -120,8 +121,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Setup machineapi dependencies
 	if err := machinev1.AddToScheme(mgr.GetScheme()); err != nil {
+		log.Error(err, "")
+		os.Exit(1)
+	}
+
+	if err := configv1.AddToScheme(mgr.GetScheme()); err != nil {
 		log.Error(err, "")
 		os.Exit(1)
 	}
