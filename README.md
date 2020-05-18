@@ -15,9 +15,9 @@ Further developement to take into consideration the use of freeze windows will a
 
 ## What could do
 * Query Xchangewindows CRs that are being developed in the managed-upgrade-operator.
- * PreferredUpgradeStartTime -> this could be used as maintenance time
- * AdminFreezeWindow
- * CustomerFreezeWindow
+	* PreferredUpgradeStartTime -> this could be used as maintenance time
+	* AdminFreezeWindow
+	* CustomerFreezeWindow
 * If its not a suitable time, exit reconcile loop with Result.Requeue = false
 * Recncile will check again in 15 mins as per SyncPeriod. 
 * If it is a suitable time, delete `machine` CR for target machine. 
