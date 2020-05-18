@@ -3,13 +3,11 @@ package machinemaintenance
 import (
 	"context"
 	"fmt"
-	"time"
 
 	machinev1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 	machinemaintenancev1alpha1 "github.com/openshift/machine-maintenance-operator/pkg/apis/machinemaintenance/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -22,11 +20,6 @@ import (
 )
 
 var log = logf.Log.WithName("controller_machinemaintenance")
-
-/**
-* USER ACTION REQUIRED: This is a scaffold file intended for the user to modify with their own Controller
-* business logic.  Delete these comments after modifying this file.*
- */
 
 // Add creates a new MachineMaintenance Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
@@ -79,8 +72,6 @@ type ReconcileMachineMaintenance struct {
 
 // Reconcile reads that state of the cluster for a MachineMaintenance object and makes changes based on the state read
 // and what is in the MachineMaintenance.Spec
-// TODO(user): Modify this Reconcile function to implement your Controller logic.  This example creates
-// a Pod as an example
 // Note:
 // The Controller will requeue the Request to be processed again if the returned error is non-nil or
 // Result.Requeue is true, otherwise upon completion it will remove the work from the queue.
@@ -102,14 +93,14 @@ func (r *ReconcileMachineMaintenance) Reconcile(request reconcile.Request) (reco
 		return reconcile.Result{}, err
 	}
 
-	/* If maintenance is false:
+	/* Complete Workflow (non MVP):
 	1. Query the:
 		* CustomerFreezeWindow
 		* AdminFreezeWindow
 		* PreferredUpgradeTime -> could use this as "maintenance" time
 	2. Calculate appropriate maintenance time based on above
-	3. set the above time as a deletion timestamp on the machines machineconfig
-	4. Update status of CR to "scheduled"
+	3. If calulation time is within 15 mins of time.Now(), execute maintenance, else set Result.Requeue
+	to false have the CR reconciled as per the managers SyncPeriod.
 	5. Set the owner of CR to that of the machinepool object? IE when machine is deleted,
 	the machine maintenance is deleted?
 	*/
@@ -141,18 +132,14 @@ func (r *ReconcileMachineMaintenance) Reconcile(request reconcile.Request) (reco
 			return reconcile.Result{}, err
 		}
 
-		// Set deletion timestamp on targetMachine
-		//		targetMachine.ObjectMeta.DeletionTimestamp = &metav1.Time{Time: time.Now()}
-		targetMachine.ObjectMeta.SetDeletionTimestamp(&metav1.Time{Time: time.Now()})
-
-		err = r.client.Update(context.TODO(), targetMachine)
+		// Delete targetMachine that has maintenance scheduled
+		err = r.client.Delete(context.TODO(), targetMachine)
 		if err != nil {
-			log.Error(err, "unable to update machine CR with deletiontimestamp")
+			reqLogger.Error(err, "Unable to update machine CR with deletiontimestamp")
 			return reconcile.Result{}, err
 		}
+		reqLogger.Info(fmt.Sprintf("Deleting machine %s", targetMachine.ObjectMeta.Name))
 
-		fmt.Println("This is retrived from machine CR")
-		fmt.Println(targetMachine.ObjectMeta.Name)
 		// set deletiontimestamp on machine CR
 		// set machinemaintenance as finalizer on machine CR
 		mm.Spec.MaintenanceScheduled = true

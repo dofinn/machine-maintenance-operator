@@ -9,16 +9,17 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/go-logr/logr"
 	machinemaintenancev1alpha1 "github.com/openshift/machine-maintenance-operator/pkg/apis/machinemaintenance/v1alpha1"
 	"github.com/openshift/machine-maintenance-operator/pkg/awsclient"
 	"github.com/openshift/machine-maintenance-operator/pkg/controller/utils"
 
-	"github.com/go-logr/logr"
 	machinev1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
+	// Name of secret that holds AWS creds for IAM user.
 	AWSSecretName     = "machine-maintenance-operator-credentials"
 	OperatorNamespace = "machine-maintenance-operator"
 
@@ -31,6 +32,8 @@ const (
 	instanceStop       = "instance-stop"
 )
 
+// Filter for DescribeInstanceStatusInput so that only instances with
+// events are returned.
 var maintenanceFilter = []*ec2.Filter{
 	{
 		Name: aws.String(eventCode),
@@ -39,20 +42,21 @@ var maintenanceFilter = []*ec2.Filter{
 	},
 }
 
-// SecretWatcher global var for SecretWatcher
+// SecretWatcher global var for SecretWatcher.
 var MaintenanceWatcher *maintenanceWatcher
 
+// maintenanceWatcher struct that the below methods are built around.
 type maintenanceWatcher struct {
 	watchInterval time.Duration
 	client        client.Client
 }
 
-// Initialize creates a global instance of the SecretWatcher
+// Initialize creates a global instance of the SecretWatcher.
 func Initialize(client client.Client, watchInterval time.Duration) {
 	MaintenanceWatcher = NewMaintenanceWatcher(client, watchInterval)
 }
 
-// NewMaintenanceWatcher returns a new instance of the maintenanceWatcher struct
+// NewMaintenanceWatcher returns a new instance of the maintenanceWatcher struct.
 func NewMaintenanceWatcher(client client.Client, watchInterval time.Duration) *maintenanceWatcher {
 	return &maintenanceWatcher{
 		watchInterval: watchInterval,
@@ -64,14 +68,16 @@ func NewMaintenanceWatcher(client client.Client, watchInterval time.Duration) *m
 // on the frequency of m.watchInterval. Process wil cease when message is sent on the stopCh.
 func (m *maintenanceWatcher) Start(log logr.Logger, stopCh <-chan struct{}) {
 	log.Info("Starting the maintenanceWatcher")
-	log.Info("Scanning Machines for maintenances")
+	log.Info("Initial scanning of Machines for maintenances")
+
 	// Scan machines for maintenances and publish them to a machinemaintenance CR.
 	err := m.scanAndPublishMachineMaintences(log)
-
 	if err != nil {
-		log.Error(err, "machine maintenance scanner failed initial run")
+		log.Error(err, "Machine maintenance scanner failed initial run")
 	}
 
+	// While true, perform a scan ever m.watchInterval and process any instances
+	// that have returned with maintenance events.
 	for {
 		select {
 		case <-time.After(m.watchInterval):
@@ -80,9 +86,10 @@ func (m *maintenanceWatcher) Start(log logr.Logger, stopCh <-chan struct{}) {
 			err := m.scanAndPublishMachineMaintences(log)
 
 			if err != nil {
-				log.Error(err, "machine maintenance scanner failed to run")
+				log.Error(err, "Machine maintenance scanner failed to run")
 			}
 
+			// Listens for SIGTERM or SIGINT.
 		case <-stopCh:
 			log.Info("Stopping the maintenanceWatcher")
 			break
@@ -90,22 +97,24 @@ func (m *maintenanceWatcher) Start(log logr.Logger, stopCh <-chan struct{}) {
 	}
 }
 
-// scanAndPublishMachineMaintences will retrieve each machine resource ID and query for
+// scanAndPublishMachineMaintences will retrieve each machine resources (Name and ID) and query for
 // scheduled maintenances from the cloud provider. If a maintenance is present, a
 // machinemaintenance CR will be created for the machinemaintenance controller to reconcile.
 func (m *maintenanceWatcher) scanAndPublishMachineMaintences(log logr.Logger) error {
+	// Retrieve machine resources.
 	machineResources, err := m.getMachineResources(log)
 	if err != nil {
 		log.Error(err, "failed to return machine resources IDs")
 		return err
 	}
 
-	// Get region
+	// Get cluster region.
 	region, err := utils.GetClusterRegion(m.client)
 	if err != nil {
 		return err
 	}
 
+	// Get awsclient using operator secret and cluster region.
 	awsClient, err := awsclient.GetAWSClient(m.client, awsclient.NewAwsClientInput{
 		SecretName: AWSSecretName,
 		NameSpace:  OperatorNamespace,
@@ -168,13 +177,14 @@ func (m *maintenanceWatcher) getMachineResources(log logr.Logger) ([]machineMap,
 			machineMaps = append(machineMaps, mMap)
 		}
 	}
-	//	return machineMaps, nil
+	// Return machineMaps to caller.
 	return machineMaps, nil
 }
 
 // checkMachineMaintenance uses each machines resource ID to query the API and check
 // if that machine has a scheduled maintenance.
 func (m *maintenanceWatcher) checkMachineMaintenance(log logr.Logger, mMap machineMap, awsclient *awsclient.AwsClient) error {
+	// Split map into ID and Name for convenience.
 	mID := mMap["id"]
 	mName := mMap["name"]
 
@@ -186,6 +196,7 @@ func (m *maintenanceWatcher) checkMachineMaintenance(log logr.Logger, mMap machi
 		Filters: maintenanceFilter,
 	}
 
+	// Call to AWS API for instance status.
 	result, err := awsclient.DescribeInstanceStatus(input)
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
@@ -214,31 +225,37 @@ func (m *maintenanceWatcher) checkMachineMaintenance(log logr.Logger, mMap machi
 	return nil
 }
 
+// createMaintenanceCR populates a MachineMaintenance CR with required inputs and creates it
+// so it can be reconiled by the machinemaintenance controller.
 func (m *maintenanceWatcher) createMaintenanceCR(log logr.Logger, maintenance *ec2.DescribeInstanceStatusOutput, mMap machineMap) error {
+	// Get a MachineMaintenance CR for population.
 	machineMaintenance := machinemaintenancev1alpha1.MachineMaintenance{}
 
+	// Retrieve event details from the instance status.
+	// TODO: Handle multiple events for the one instance.
 	mCurrent := maintenance.InstanceStatuses[0]
 
-	// Construct CR
+	// Construct MachineMaintenance CR
 	machineMaintenance.Spec.MaintenanceScheduled = false
 	machineMaintenance.Spec.EventCode = *mCurrent.Events[0].Code
 	machineMaintenance.Spec.EventID = *mCurrent.Events[0].InstanceEventId
-	//	machineMaintenance.Spec.NotBefore = *mCurrent.Events[0].NotBefore
 	machineMaintenance.Spec.MachineID = *mCurrent.InstanceId
 	machineMaintenance.ObjectMeta.Namespace = OperatorNamespace
-	// should use the shard off: dofinn-20201705-blz22-infra-ap-southeast-2a-4pdbs
-	machineMaintenance.ObjectMeta.Name = "mm-" + *mCurrent.InstanceId
-	//	TODO: Add machinelink from machine CR.ObjectMeta.Name
+	machineMaintenance.ObjectMeta.Name = "mm-" + mMap["name"]
 	machineMaintenance.Spec.MachineLink = mMap["name"]
+	// TODO: handle JSON Time.
+	//	machineMaintenance.Spec.NotBefore = *mCurrent.Events[0].NotBefore
 
 	err := m.client.Create(context.TODO(), &machineMaintenance)
 	if err != nil {
 		log.Error(err, "Failed to create machineMaintenance CR")
 	}
 
+	// Return nil if successful creation of MachineMaintenance CR.
 	return nil
 }
 
+// Example Event for an actual scheduled machine.
 /*
 {
   InstanceStatuses: [{

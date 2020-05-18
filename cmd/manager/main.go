@@ -35,7 +35,8 @@ var (
 	metricsHost                          = "0.0.0.0"
 	metricsPort                    int32 = 8383
 	operatorMetricsPort            int32 = 8686
-	maintenanceWatcherScanInterval       = time.Duration(1) * time.Minute
+	maintenanceWatcherScanInterval       = time.Duration(60) * time.Minute
+	syncPeriodTime                       = time.Duration(15) * time.Minute
 )
 var log = logf.Log.WithName("cmd")
 
@@ -91,20 +92,12 @@ func main() {
 	}
 
 	// Set default manager options
+	// TODO: watch two namespaces: openshift-machine-maintenance-operator | openshift-machine-api
 	options := manager.Options{
-		//		Namespace:          namespace,
-		Namespace: "",
+		Namespace:  "",
+		SyncPeriod: &syncPeriodTime,
 		//		MetricsBindAddress: fmt.Sprintf("%s:%d", metricsHost, metricsPort),
 	}
-
-	// Add support for MultiNamespace set in WATCH_NAMESPACE (e.g ns1,ns2)
-	// Note that this is not intended to be used for excluding namespaces, this is better done via a Predicate
-	// Also note that you may face performance issues when using this with a high number of namespaces.
-	// More Info: https://godoc.org/github.com/kubernetes-sigs/controller-runtime/pkg/cache#MultiNamespacedCacheBuilder
-	//	if strings.Contains(namespace, ",") {
-	//		options.Namespace = ""
-	//		options.NewCache = cache.MultiNamespacedCacheBuilder(strings.Split(namespace, ","))
-	//	}
 
 	// Create a new manager to provide shared dependencies and start components
 	mgr, err := manager.New(cfg, options)
@@ -156,7 +149,6 @@ func main() {
 	log.Info("Starting the Cmd.")
 
 	// Start the Cmd
-	//	if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
 	if err := mgr.Start(stopCh); err != nil {
 		log.Error(err, "Manager exited non-zero")
 		os.Exit(1)
