@@ -2,6 +2,10 @@ apiVersion: machinemaintenance.managed.openshift.io/v1alpha1
 kind: MachineMaintenance
 metadata:
   name: example-machinemaintenance
+  namespace: machine-maintenance-operator
 spec:
-  # Add fields here
-  size: 3
+  maintenancescheduled: false
+  eventcode: "instance-stop"
+  eventid: "instance-event-01d0903276a5d038c"
+  machineid: "i-03bb82b19841a4678"
+  machinelink: "dofinn-20201705-blz22-worker-ap-southeast-2a-l94w5"

@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 	machinemaintenancev1alpha1 "github.com/openshift/machine-maintenance-operator/pkg/apis/machinemaintenance/v1alpha1"
 	"github.com/openshift/machine-maintenance-operator/pkg/awsclient"
+	"github.com/openshift/machine-maintenance-operator/pkg/controller/utils"
 
 	"github.com/go-logr/logr"
 	machinev1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
@@ -93,20 +94,17 @@ func (m *maintenanceWatcher) Start(log logr.Logger, stopCh <-chan struct{}) {
 // scheduled maintenances from the cloud provider. If a maintenance is present, a
 // machinemaintenance CR will be created for the machinemaintenance controller to reconcile.
 func (m *maintenanceWatcher) scanAndPublishMachineMaintences(log logr.Logger) error {
-	// Get the machine resource IDs.
-	machineResourceIDs := make([]string, 0)
-	machineResourceIDs, err := m.getMachineResourceIDs(log)
+	machineResources, err := m.getMachineResources(log)
 	if err != nil {
 		log.Error(err, "failed to return machine resources IDs")
 		return err
 	}
 
 	// Get region
-	//region, err := utils.GetClusterRegion(m.client)
-	//if err != nil {
-	//	return err
-	//}
-	region := "us-east-1"
+	region, err := utils.GetClusterRegion(m.client)
+	if err != nil {
+		return err
+	}
 
 	awsClient, err := awsclient.GetAWSClient(m.client, awsclient.NewAwsClientInput{
 		SecretName: AWSSecretName,
@@ -121,10 +119,9 @@ func (m *maintenanceWatcher) scanAndPublishMachineMaintences(log logr.Logger) er
 
 	// Query the AWS api for maintenance for the given ID.
 	// TODO : AWS can actually accept a list.
-	for _, machineResourceID := range machineResourceIDs {
-		// pass aws client here
-		log.Info(fmt.Sprintf("Checking maintenance for %s", machineResourceID))
-		err := m.checkMachineMaintenance(log, machineResourceID, awsClient)
+	for _, machineResource := range machineResources {
+		log.Info(fmt.Sprintf("Checking maintenance for %s", machineResource["name"]))
+		err := m.checkMachineMaintenance(log, machineResource, awsClient)
 		if err != nil {
 			return err
 		}
@@ -133,11 +130,14 @@ func (m *maintenanceWatcher) scanAndPublishMachineMaintences(log logr.Logger) er
 	return nil
 }
 
-// getMachineResourceIDs gets each machines resource ID and returns them in a string array
+// Create machineMap type so getMachineResources can return it
+type machineMap map[string]string
+
+// getMachineResources gets each machines resource ID and returns them in a string array
 // to the caller.
-func (m *maintenanceWatcher) getMachineResourceIDs(log logr.Logger) ([]string, error) {
-	// Create array to hold machine IDs.
-	machineResourceIDs := make([]string, 0)
+func (m *maintenanceWatcher) getMachineResources(log logr.Logger) ([]machineMap, error) {
+	// machineMaps holds a slice of machineMap
+	var machineMaps []machineMap
 
 	// Create machineList type to use as runtime object.
 	machineList := &machinev1.MachineList{}
@@ -155,25 +155,33 @@ func (m *maintenanceWatcher) getMachineResourceIDs(log logr.Logger) ([]string, e
 	}
 
 	// Iterate through each machine item and append the resource ID returned
-	// to the machineResourceIDs string array.
+	// to the machineResources string array.
 	for _, machineObj := range machineList.Items {
+		machineName := *&machineObj.ObjectMeta.Name
 		r := strings.LastIndex(*machineObj.Spec.ProviderID, "/")
 		if r != -1 {
 			n := *machineObj.Spec.ProviderID
-			machineResourceIDs = append(machineResourceIDs, n[r+1:])
+			mMap := machineMap{
+				"name": machineName,
+				"id":   n[r+1:],
+			}
+			machineMaps = append(machineMaps, mMap)
 		}
 	}
-	return machineResourceIDs, nil
+	//	return machineMaps, nil
+	return machineMaps, nil
 }
 
 // checkMachineMaintenance uses each machines resource ID to query the API and check
 // if that machine has a scheduled maintenance.
-func (m *maintenanceWatcher) checkMachineMaintenance(log logr.Logger, mri string, awsclient *awsclient.AwsClient) error {
+func (m *maintenanceWatcher) checkMachineMaintenance(log logr.Logger, mMap machineMap, awsclient *awsclient.AwsClient) error {
+	mID := mMap["id"]
+	mName := mMap["name"]
 
 	// Prepare input for request.
 	input := &ec2.DescribeInstanceStatusInput{
 		InstanceIds: []*string{
-			aws.String(mri),
+			aws.String(mID),
 		},
 		Filters: maintenanceFilter,
 	}
@@ -196,33 +204,36 @@ func (m *maintenanceWatcher) checkMachineMaintenance(log logr.Logger, mri string
 	// Based on the maintenanceFilter, no results will be returned for machines
 	// without a maintenance scheduled.
 	if len(result.InstanceStatuses) != 0 {
-		log.Info(fmt.Sprintf("Found maintenance for %s", mri))
-		m.createMaintenanceCR(log, result)
-		log.Info(fmt.Sprintf("Creating maintenance for %s", mri))
+		log.Info(fmt.Sprintf("Found maintenance for %s", mName))
+		m.createMaintenanceCR(log, result, mMap)
+		log.Info(fmt.Sprintf("Creating maintenance for %s", mName))
 	} else {
-		log.Info(fmt.Sprintf("Currently no maintenance for %s", mri))
+		log.Info(fmt.Sprintf("Currently no maintenance for %s", mName))
 	}
 
 	return nil
 }
 
-func (m *maintenanceWatcher) createMaintenanceCR(log logr.Logger, maintenance *ec2.DescribeInstanceStatusOutput) error {
+func (m *maintenanceWatcher) createMaintenanceCR(log logr.Logger, maintenance *ec2.DescribeInstanceStatusOutput, mMap machineMap) error {
 	machineMaintenance := machinemaintenancev1alpha1.MachineMaintenance{}
 
 	mCurrent := maintenance.InstanceStatuses[0]
 
 	// Construct CR
-	machineMaintenance.Spec.Maintenance = true
+	machineMaintenance.Spec.MaintenanceScheduled = false
 	machineMaintenance.Spec.EventCode = *mCurrent.Events[0].Code
 	machineMaintenance.Spec.EventID = *mCurrent.Events[0].InstanceEventId
 	//	machineMaintenance.Spec.NotBefore = *mCurrent.Events[0].NotBefore
 	machineMaintenance.Spec.MachineID = *mCurrent.InstanceId
 	machineMaintenance.ObjectMeta.Namespace = OperatorNamespace
-	machineMaintenance.ObjectMeta.Name = "testing123"
+	// should use the shard off: dofinn-20201705-blz22-infra-ap-southeast-2a-4pdbs
+	machineMaintenance.ObjectMeta.Name = "mm-" + *mCurrent.InstanceId
+	//	TODO: Add machinelink from machine CR.ObjectMeta.Name
+	machineMaintenance.Spec.MachineLink = mMap["name"]
 
 	err := m.client.Create(context.TODO(), &machineMaintenance)
 	if err != nil {
-		log.Error(err, "XXXXXXXXXXXXXXXXXXXXXXXOOOOOO sheet")
+		log.Error(err, "Failed to create machineMaintenance CR")
 	}
 
 	return nil

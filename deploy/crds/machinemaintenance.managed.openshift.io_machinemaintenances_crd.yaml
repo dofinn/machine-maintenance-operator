@@ -38,7 +38,9 @@ spec:
             machineid:
               description: "\tNotBefore   time.Time `json:\"notbefore,omitempty\"`"
               type: string
-            maintenance:
+            machinelink:
+              type: string
+            maintenancescheduled:
               description: 'INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
                 Important: Run "operator-sdk generate k8s" to regenerate code after
                 modifying this file Add custom validation using kubebuilder tags:
@@ -46,7 +48,8 @@ spec:
               type: boolean
           required:
           - machineid
-          - maintenance
+          - machinelink
+          - maintenancescheduled
           type: object
         status:
           description: MachineMaintenanceStatus defines the observed state of MachineMaintenance

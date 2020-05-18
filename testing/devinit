@@ -1,0 +1,25 @@
+#!/bin/bash
+set -x
+
+AWS_USERNAME=machine-maintenance-operator
+
+AWS_ACCESS_KEY_ID=$(oc get secrets -n kube-system aws-creds -o json | jq -r '.data.aws_access_key_id' | base64 --decode)
+AWS_SECRET_ACCESS_KEY=$(oc get secrets -n kube-system aws-creds -o json | jq -r '.data.aws_secret_access_key' | base64 --decode)
+ACCOUNTID=$(AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY aws sts get-caller-identity | jq -r '.Account')
+
+
+echo "Creating IAM user for machine-maintenance-operator"
+MMO_AWS_ACCESS_KEY_ID=$(AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY aws iam create-user --user-name $AWS_USERNAME | jq -r '.User.UserId')
+MMO_AWS_ACCESS_SECRET_KEY_ID=$(AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY aws iam create-access-key --user-name $AWS_USERNAME | jq -r '.AccessKey.SecretAccessKey')
+
+echo "Attaching Policy for machine-maintenance-operator"
+AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY aws iam attach-user-policy --policy-arn arn:aws:iam::aws:policy/AmazonEC2FullAccess --user-name $AWS_USERNAME 
+
+echo "Creating namespace in cluster"
+oc new-project machine-maintenance-operator
+
+echo "Creating secret for operator"
+
+oc create secret generic machine-maintenance-operator-credentials -n machine-maintenance-operator --from-literal=aws_access_key_id="$MMO_AWS_ACCESS_KEY_ID" --from-literal=aws_secret_access_key="$MMO_AWS_ACCESS_SECRET_KEY_ID"
+
+oc apply ~/go/src/github.com/openshift/machine-maintenance-operator/deploy/crds/machinemaintenance.managed.openshift.io_machinemaintenances_crd.yaml

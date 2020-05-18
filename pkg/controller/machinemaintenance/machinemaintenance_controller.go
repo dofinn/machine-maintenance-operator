@@ -3,12 +3,15 @@ package machinemaintenance
 import (
 	"context"
 	"fmt"
+	"time"
 
+	machinev1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 	machinemaintenancev1alpha1 "github.com/openshift/machine-maintenance-operator/pkg/apis/machinemaintenance/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -85,9 +88,9 @@ func (r *ReconcileMachineMaintenance) Reconcile(request reconcile.Request) (reco
 	reqLogger := log.WithValues("Request.Namespace", request.Namespace, "Request.Name", request.Name)
 	reqLogger.Info("Reconciling MachineMaintenance")
 
-	// Fetch the MachineMaintenance instance
-	instance := &machinemaintenancev1alpha1.MachineMaintenance{}
-	err := r.client.Get(context.TODO(), request.NamespacedName, instance)
+	// Fetch the MachineMaintenance mm
+	mm := &machinemaintenancev1alpha1.MachineMaintenance{}
+	err := r.client.Get(context.TODO(), request.NamespacedName, mm)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			// Request object not found, could have been deleted after reconcile request.
@@ -98,71 +101,69 @@ func (r *ReconcileMachineMaintenance) Reconcile(request reconcile.Request) (reco
 		// Error reading the object - requeue the request.
 		return reconcile.Result{}, err
 	}
-	if instance.Spec.Maintenance != true {
-		reqLogger.Info("Maintenance is NOT scheduled :(")
-		reqLogger.Info("Setting maintenance to true")
-		instance.Spec.Maintenance = true
-		err := r.client.Update(context.TODO(), instance)
+
+	/* If maintenance is false:
+	1. Query the:
+		* CustomerFreezeWindow
+		* AdminFreezeWindow
+		* PreferredUpgradeTime -> could use this as "maintenance" time
+	2. Calculate appropriate maintenance time based on above
+	3. set the above time as a deletion timestamp on the machines machineconfig
+	4. Update status of CR to "scheduled"
+	5. Set the owner of CR to that of the machinepool object? IE when machine is deleted,
+	the machine maintenance is deleted?
+	*/
+	if mm.Spec.MaintenanceScheduled != true {
+		reqLogger.Info(fmt.Sprintf("Scheduling maintenance for %s", mm.Spec.MachineLink))
+		// Query freeze windows here
+		// Calculate appropriate maintenanance time here
+
+		// fetch machine CR from .MachineLink
+		targetMachine := &machinev1.Machine{}
+
+		machineLink := mm.Spec.MachineLink
+
+		err := r.client.Get(context.TODO(),
+			types.NamespacedName{
+				Name:      machineLink,
+				Namespace: "openshift-machine-api",
+			},
+			targetMachine)
+
+		if err != nil {
+			if errors.IsNotFound(err) {
+				// Request object not found, could have been deleted after reconcile request.
+				// Owned objects are automatically garbage collected. For additional cleanup logic use finalizers.
+				// Return and don't requeue
+				return reconcile.Result{}, nil
+			}
+			// Error reading the object - requeue the request.
+			return reconcile.Result{}, err
+		}
+
+		// Set deletion timestamp on targetMachine
+		//		targetMachine.ObjectMeta.DeletionTimestamp = &metav1.Time{Time: time.Now()}
+		targetMachine.ObjectMeta.SetDeletionTimestamp(&metav1.Time{Time: time.Now()})
+
+		err = r.client.Update(context.TODO(), targetMachine)
+		if err != nil {
+			log.Error(err, "unable to update machine CR with deletiontimestamp")
+			return reconcile.Result{}, err
+		}
+
+		fmt.Println("This is retrived from machine CR")
+		fmt.Println(targetMachine.ObjectMeta.Name)
+		// set deletiontimestamp on machine CR
+		// set machinemaintenance as finalizer on machine CR
+		mm.Spec.MaintenanceScheduled = true
+		err = r.client.Update(context.TODO(), mm)
 		if err != nil {
 			reqLogger.Info((fmt.Sprintf("An error occurred: %s", err)))
 			return reconcile.Result{}, err
 		}
 		return reconcile.Result{}, nil
 	} else {
-		reqLogger.Info("Maintenance is currently scheduled :)")
-		log.Info(fmt.Sprintf("machine maintenance CR\n%+v\n", instance.Spec))
+		reqLogger.Info(fmt.Sprintf("Maintenance already scheduled for: %s", mm.Spec.MachineLink))
 		return reconcile.Result{}, nil
-	}
-}
-
-//	// Define a new Pod object
-//	pod := newPodForCR(instance)
-//
-//	// Set MachineMaintenance instance as the owner and controller
-//	if err := controllerutil.SetControllerReference(instance, pod, r.scheme); err != nil {
-//		return reconcile.Result{}, err
-//	}
-//
-//	// Check if this Pod already exists
-//	found := &corev1.Pod{}
-//	err = r.client.Get(context.TODO(), types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, found)
-//	if err != nil && errors.IsNotFound(err) {
-//		reqLogger.Info("Creating a new Pod", "Pod.Namespace", pod.Namespace, "Pod.Name", pod.Name)
-//		err = r.client.Create(context.TODO(), pod)
-//		if err != nil {
-//			return reconcile.Result{}, err
-//		}
-//
-//		// Pod created successfully - don't requeue
-//		return reconcile.Result{}, nil
-//	} else if err != nil {
-//		return reconcile.Result{}, err
-//	}
-//
-//	// Pod already exists - don't requeue
-//	reqLogger.Info("Skip reconcile: Pod already exists", "Pod.Namespace", found.Namespace, "Pod.Name", found.Name)
-//	return reconcile.Result{}, nil
-//}
-
-// newPodForCR returns a busybox pod with the same name/namespace as the cr
-func newPodForCR(cr *machinemaintenancev1alpha1.MachineMaintenance) *corev1.Pod {
-	labels := map[string]string{
-		"app": cr.Name,
-	}
-	return &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      cr.Name + "-pod",
-			Namespace: cr.Namespace,
-			Labels:    labels,
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{
-				{
-					Name:    "busybox",
-					Image:   "busybox",
-					Command: []string{"sleep", "3600"},
-				},
-			},
-		},
 	}
 }
