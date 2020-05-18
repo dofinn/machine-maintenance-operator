@@ -1,7 +1,7 @@
 # Machine Maintenance Operator
 
 ## What problem does it solve?
-Currenty the `machine-config-api` does not handle machine termination via the scheduled events from AWS. This creates alerts that require manual intervention by deleting the missing machines `machine` CR. 
+Currenty the `machine-api` does not handle machine termination via the scheduled events from AWS. This creates alerts that require manual intervention by deleting the missing machines `machine` CR. 
 
 This will not scale. 
 
@@ -11,7 +11,7 @@ Further developement to take into consideration the use of freeze windows will a
 * Queries AWS API for each instance ID in the cluster for scheduled events every 60 minutes. 
 * Creates a `machinemaintenance` CR that the machinemaintenance controller reconciles
 * Current reconciliation is deleting the target machines `machine` CR in the `openshift-machine-api` namespace
-* machine-config-api gracefully terminates node
+* machine-api gracefully terminates node
 
 ## What could do
 * Query Xchangewindows CRs that are being developed in the managed-upgrade-operator.
