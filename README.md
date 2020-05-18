@@ -5,6 +5,8 @@ Currenty the `machine-config-api` does not handle machine termination via the sc
 
 This will not scale. 
 
+Further developement to take into consideration the use of freeze windows will also enable customers to be assurred that these events are occurring during their designated maintenance windows. 
+
 ## What it does
 * Queries AWS API for each instance ID in the cluster for scheduled events every 60 minutes. 
 * Creates a `machinemaintenance` CR that the machinemaintenance controller reconciles
@@ -13,6 +15,9 @@ This will not scale.
 
 ## What could do
 * Query Xchangewindows CRs that are being developed in the managed-upgrade-operator.
+ * PreferredUpgradeStartTime -> this could be used as maintenance time
+ * AdminFreezeWindow
+ * CustomerFreezeWindow
 * If its not a suitable time, exit reconcile loop with Result.Requeue = false
 * Recncile will check again in 15 mins as per SyncPeriod. 
 * If it is a suitable time, delete `machine` CR for target machine. 
