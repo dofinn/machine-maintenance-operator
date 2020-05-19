@@ -1,7 +1,12 @@
 # Machine Maintenance Operator
 
 ## What problem does it solve?
-Currenty the `machine-api` does not handle machine termination via the scheduled events from AWS. This creates alerts that require manual intervention by deleting the missing machines `machine` CR. 
+Currenty the `machine-api` does not handle:
+* machine termination via the scheduled events from AWS
+* machine stop/termination via the AWS console. 
+This creates alerts that require manual intervention by deleting the missing machines `machine` CR. 
+
+Further investigation can be found [here](investigation/mmo.md)
 
 This will not scale. 
 
