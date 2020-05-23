@@ -1,35 +1,42 @@
-# Machine Maintenance Operator
+# POC: Machine Maintenance Operator
+
+An operator that performance machine maintenance on behalf of the machine-api-operator in OCP environments. 
 
 ## What problem does it solve?
-Currenty the `machine-api` does not handle:
-* machine termination via the scheduled events from AWS
+Currenty the [machine-api-operator](https://github.com/openshift/machine-api-operator) does not handle:
+* machine stop/termination by scheduled events from AWS
 * machine stop/termination via the AWS console. 
-This creates alerts that require manual intervention by deleting the missing machines `machine` CR. 
+This requires manual intervention by deleting the missing machines `machine` CR to resolve the incorrect state of the cluster and machine-* operators. 
 
 Further investigation can be found [here](investigation/mmo.md)
 
-This will not scale. 
-
-Further developement to take into consideration the use of freeze windows will also enable customers to be assurred that these events are occurring during their designated maintenance windows. 
+This will not scale in a large cluster or while managing a fleet of clusters.
 
 ## What it does
 * Queries AWS API for each instance ID in the cluster for scheduled events every 60 minutes. 
 * Creates a `machinemaintenance` CR that the machinemaintenance controller reconciles
 * Current reconciliation is deleting the target machines `machine` CR in the `openshift-machine-api` namespace
-* machine-api gracefully terminates node
+* machine-api gracefully terminates node and creates new node to satisfy machinesets. 
 
-## What could do
-* Query Xchangewindows CRs that are being developed in the managed-upgrade-operator.
+## What it could do
+* Query Xchangewindows CRs that are being developed in the [managed-upgrade-operator](https://github.com/openshift/managed-upgrade-operator/tree/master/deploy/crds).
 	* PreferredUpgradeStartTime -> this could be used as maintenance time
 	* AdminFreezeWindow
 	* CustomerFreezeWindow
 * If its not a suitable time, exit reconcile loop with Result.Requeue = false
+* detect if cluster is already performing a maintenance, if so re-queue for reconcile. 
+* detect if cluster is already performing an upgrade, if so re-queue for reconcile.
+* validate machine CR state against that of the cloud providers API, if ! validated then perform maintenance to resolve. 
+* validate machine health behind cloud providers ELB, if ! validated then perform maintenance to resolve. 
 * Recncile will check again in 15 mins as per SyncPeriod. 
 * If it is a suitable time, delete `machine` CR for target machine. 
 * This should also handle different terminations for worker/infra vs master nodes. 
 
-## Open Questions
-From testing, it takes approximately 7 minutes for a node to be available in the "Running" state. If this is not acceptable, the reconciler could have the logic to increase machine pool by count+1, then terminate then reduce machine pool by count-1.
+## OCP vs OSD implementations
+This operator could be ran in either environment. If its enabled to detect the kind of environment (hosted vs non-hosted) then an expectation can be set on the presence of changewindow CRDs that are dependency found in the [managed-upgrade-operator](https://github.com/openshift/managed-upgrade-operator/tree/master/deploy/crds).
+
+## Local Development
+Assuming logged into an OCP/OSD cluster on AWS, execute `testing/devinit`. Then in the repo on your local `operator-sdk run --local`.
 
 ## Example Logs
 
